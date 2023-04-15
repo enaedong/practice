@@ -1,5 +1,12 @@
 void run_command(string command, Status* status) {
-    vector<string> command_list = split(command, ' ');
+    vector<string> command_list;
+    size_t start = 0, end = 0;
+    while ((end = command.find(' ', start)) != string::npos) { // ' ' 문자열을 기준으로 문자열 분할
+        command_list.push_back(command.substr(start, end - start)); // 문자열 분할 결과를 command_list에 추가
+        start = end + 1; // 다음 문자열 시작 위치로 이동
+    }
+    command_list.push_back(command.substr(start)); // 마지막 문자열 추가
+
     string command_name = command_list[0];
     string arg1 = command_list[1];
 
