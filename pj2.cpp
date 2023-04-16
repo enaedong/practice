@@ -29,7 +29,8 @@ struct Status {
 };
 
 // 전역변수
-int pid_decider = 0;
+int pid_decider = 1;
+vector<int> bookmarks;
 FILE* file;
 
 // 출력 함수
@@ -94,14 +95,30 @@ void print_status(Status status) {
 }
 
 
+pair<vector<string>, int> read_file(string file_name) {
+    vector<string> file_content;
+    string line;
+    ifstream file(file_name);
+    int line_number = 0;
+    if (file.is_open()) {
+        while (getline(file, line)) {
+            file_content.push_back(line);
+            line_number++;
+        }
+        file.close();
+    }
+    return make_pair(file_content, line_number);
+}
+
 
 //프로세스를 생성하는 함수
-Process* create_process(string name, int pid, int ppid) {
+Process* create_process(string name, int pid, int ppid, int next_command_index) {
     Process* process = new Process;
     process->name = name;
     process->pid = pid;
     process->ppid = ppid;
     pid_decider++;
+    bookmarks.push_back(0);
     return process;
 }
 
@@ -211,39 +228,22 @@ void move_process_from_wait_to_ready_queue(Process* process, Status* status) {
 
 //cycle 증가 구현 함수
 void increase_cycle(Status* status) {
-    status->cycle++;
+        
     for (int i = 0; i < status->process_waiting.size(); i++) {
         if (status->process_waiting[i]->waiting_type == 'S') {
             status->process_waiting[i]->sleep_remain_counter--;
             if (status->process_waiting[i]->sleep_remain_counter == 0) {
                 move_process_from_wait_to_ready_queue(status->process_waiting[i], status);
+                
             }
         }
     }
+
+    status->cycle++;
+    print_status(*status);
 }
 
 
-
-//명령어 목록
-//1. run arg1
-//  arg1로 주어진 cycle만큼 해당 프로세스를 실행한다.
-//2. sleep arg1
-//  arg1로 주어진 cycle만큼 프로세스 상태가 waiting으로 바뀐다.
-//  모드를 kernel mode로 바꾼다.
-//3. fork_and_exec arg1
-//  arg1로 주어진 파일 이름을 자식 프로세스로 생성하고 ready queue에 넣는다.
-//  자식 프로세스의 이름은 arg1로 주어진 파일 이름이다.
-//  자식 프로세스는 부모 프로세스의 pid를 ppid로 가진다.
-//  자식 프로세스의 pid는 마지막으로 생성된 프로세스의 pid + 1이다.
-//  모드를 kernel mode로 바꾼다.
-//4. wait
-//  임의의 자식 프로세스 중에서 exit이 발생할 때까지 대기한다.
-//  프로세스 상태가 waiting이 되어 대기한다.
-//  종료되지 않은 자식 프로세스가 존재한다면, 임의의 자식 프로세스의 exit 처리 과정에서 ready queue에 넣는다.
-//  모드를 kernel mode로 바꾼다.
-//5. exit
-//  프로세스 상태가 terminated가 된다.
-//  모드를 kernel mode로 바꾼다.
 
 //명령어를 실행하는 함수
 void run_command(string command, Status* status) {
@@ -267,20 +267,78 @@ void run_command(string command, Status* status) {
     
 
     if (command_name == "run") {
+
         increase_cycle(status);
+
+        if (status->mode == "user") {
+
+        } else {
+
+        status->command = "schedule";
+
+        if (status->process_ready.empty()) {
+            move_process_from_new_to_running_queue(status->process_new, status);
+            } else {
+            move_process_from_ready_to_running_queue(status->process_ready[0], status);
+            if (status->process_new != NULL){
+            move_process_from_new_to_ready_queue(status->process_new, status);
+            }
+        }
+
+        if (status->process_terminated != NULL) {
+            remove_process_from_terminated_queue(status->process_terminated, status);
+        }
+
+        increase_cycle(status);
+        }
 
         status->mode = "user";
         status->command = "run";
+        bookmarks[status->process_running->pid-1]++;
 
-        for (int i = 0; i < stoi(arg1); i++) {
+        for (int i = 0; i < stoi(arg1)-1; i++) {
             increase_cycle(status);
         }
+
+        while (status->process_ready.empty() && status->process_running == NULL && status->process_new == NULL && !(status->process_waiting.empty())) {
+            increase_cycle(status);
+            status->command = "idle";
+        }
         
+        run_command(read_file(status->process_ready[0]->name).first[bookmarks[status->process_ready[0]->pid-1]], status);
+        
+
     } else if (command_name == "sleep") {
+        
+
         increase_cycle(status);
 
+        if (status->mode == "user") {
+
+        } else {
+
+        status->command = "schedule";
+
+        if (status->process_ready.empty()) {
+            move_process_from_new_to_running_queue(status->process_new, status);
+        } else {
+            move_process_from_ready_to_running_queue(status->process_ready[0], status);
+            if (status->process_new != NULL){
+            move_process_from_new_to_ready_queue(status->process_new, status);
+            }
+        }
+
+        if (status->process_terminated != NULL) {
+            remove_process_from_terminated_queue(status->process_terminated, status);
+        }
+        
+        increase_cycle(status);
+
+        }
+        
         status->mode = "user";
         status->command = "sleep";
+        bookmarks[status->process_running->pid-1]++;
 
         increase_cycle(status);
 
@@ -290,47 +348,90 @@ void run_command(string command, Status* status) {
         status->process_running->sleep_remain_counter = stoi(arg1);
         move_process_from_run_to_waiting_queue(status->process_running, status);
 
-        increase_cycle(status);
-
-        while (status->process_ready[0] == NULL) {
-            status->command = "idle";
+        while (status->process_ready.empty() && status->process_running == NULL && status->process_new == NULL && !(status->process_waiting.empty())) {
             increase_cycle(status);
+            status->command = "idle";
         }
-        status->command = "schedule";
-        move_process_from_ready_to_running_queue(status->process_ready[0], status);
-
+        run_command(read_file(status->process_ready[0]->name).first[bookmarks[status->process_ready[0]->pid-1]], status);
+        
 
     } else if (command_name == "fork_and_exec") {
+
         increase_cycle(status);
+
+        if (status->mode == "user"){
+
+        } else {
+
+        status->command = "schedule";
+
+        if (status->process_ready.empty()) {
+            move_process_from_new_to_running_queue(status->process_new, status);
+        } else {
+            move_process_from_ready_to_running_queue(status->process_ready[0], status);
+            if (status->process_new != NULL){
+            move_process_from_new_to_ready_queue(status->process_new, status);
+            }
+        }
+
+        if (status->process_terminated != NULL) {
+            remove_process_from_terminated_queue(status->process_terminated, status);
+        }
+
+        increase_cycle(status);
+        }
 
         status->mode = "user";
         status->command = "fork_and_exec";
-
+        if (status->process_running != NULL){
+        bookmarks[status->process_running->pid-1]++;
+        }
         increase_cycle(status);
 
         status->mode = "kernel";
         status->command = "system call";
+        Process* process = create_process(arg1, pid_decider, status->process_running->pid, 0);
         move_process_from_run_to_ready_queue(status->process_running, status);
-        Process* process = create_process(arg1, pid_decider, status->process_running->pid);
         add_process_to_new_queue(process, status);
+        
 
-        increase_cycle(status);
-
-        while (status->process_ready[0] == NULL) {
-            status->command = "idle";
+        while (status->process_ready.empty() && status->process_running == NULL && status->process_new == NULL && !(status->process_waiting.empty())) {
             increase_cycle(status);
+            status->command = "idle";
         }
-        status->command = "schedule";
-        move_process_from_ready_to_running_queue(status->process_ready[0], status);
-        move_process_from_new_to_ready_queue(process, status);
+        run_command(read_file(status->process_ready[0]->name).first[bookmarks[status->process_ready[0]->pid-1]], status);
+        
 
         
 
     } else if (command_name == "wait") {
+
         increase_cycle(status);
+
+        if (status->mode == "user") {
+
+        } else {
+        status->command = "schedule";
+
+        if (status->process_ready.empty()) {
+            move_process_from_new_to_running_queue(status->process_new, status);
+        } else {
+            move_process_from_ready_to_running_queue(status->process_ready[0], status);
+            if (status->process_new != NULL){
+            move_process_from_new_to_ready_queue(status->process_new, status);
+            }
+        }    
+
+        if (status->process_terminated != NULL) {
+            remove_process_from_terminated_queue(status->process_terminated, status);
+        }
+
+        increase_cycle(status);
+        }
 
         status->mode = "user";
         status->command = "wait";
+        bookmarks[status->process_running->pid-1]++;
 
         increase_cycle(status);
 
@@ -339,23 +440,42 @@ void run_command(string command, Status* status) {
         status->process_running->waiting_type = 'W';
         move_process_from_run_to_waiting_queue(status->process_running, status);
 
-        increase_cycle(status);
-
-        while (status->process_ready[0] == NULL) {
-            status->command = "idle";
+        while (status->process_ready.empty() && status->process_running == NULL && status->process_new == NULL && !(status->process_waiting.empty())) {
             increase_cycle(status);
+            status->command = "idle";
         }
-        status->command = "schedule";
-        move_process_from_ready_to_running_queue(status->process_ready[0], status);
-
-
-        
+        run_command(read_file(status->process_ready[0]->name).first[bookmarks[status->process_ready[0]->pid-1]], status);
 
     } else if (command_name == "exit") {
+
         increase_cycle(status);
+
+        if (status->mode == "user") {
+
+        } else {
+
+        status->command = "schedule";
+        
+
+        if (status->process_ready.empty()) {
+            move_process_from_new_to_running_queue(status->process_new, status);
+        } else {
+            move_process_from_ready_to_running_queue(status->process_ready[0], status);
+            if (status->process_new != NULL){
+            move_process_from_new_to_ready_queue(status->process_new, status);
+            }
+        }
+
+        if (status->process_terminated != NULL) {
+            remove_process_from_terminated_queue(status->process_terminated, status);
+            }
+        increase_cycle(status);
+        
+        }
 
         status->mode = "user";
         status->command = "exit";
+        bookmarks[status->process_running->pid-1]++;
 
         increase_cycle(status);
 
@@ -364,27 +484,20 @@ void run_command(string command, Status* status) {
         move_process_from_run_to_terminated_queue(status->process_running, status);
 
         for (int i = 0; i < status->process_waiting.size(); i++) {
-            if (status->process_waiting[i]->waiting_type == 'W' && status->process_waiting[i]->ppid == status->process_terminated->pid) {
+            if (status->process_waiting[i]->waiting_type == 'W' && status->process_waiting[i]->pid == status->process_terminated->ppid) {
                 move_process_from_wait_to_ready_queue(status->process_waiting[i], status);
             }
         }
 
-        increase_cycle(status);
-
-        remove_process_from_terminated_queue(status->process_terminated, status);
-        if (status->process_waiting[0] == NULL && status->process_ready[0] == NULL && status->process_new == NULL) {
-            }
-        else if (status->process_ready[0] == NULL) {
-            while (status->process_ready[0] == NULL) {
-                status->command = "idle";
-                increase_cycle(status);
-            }
-        } else {
-            status->command = "schedule";
-            move_process_from_ready_to_running_queue(status->process_ready[0], status);
+        while (status->process_ready.empty() && status->process_running == NULL && status->process_new == NULL && !(status->process_waiting.empty())) {
+            increase_cycle(status);
+            status->command = "idle";
         }
-        status->command = "schedule";
-        move_process_from_ready_to_running_queue(status->process_ready[0], status);
+        if (status->process_ready.empty()) {
+            increase_cycle(status);
+            return;
+        }
+        run_command(read_file(status->process_ready[0]->name).first[bookmarks[status->process_ready[0]->pid-1]], status);
         
     }
 }
@@ -393,27 +506,31 @@ void run_command(string command, Status* status) {
 
 
 
+
+
+
 int main(void) {
     
-    file = fopen("result", "a");
+    file = fopen("result", "w");
+    Process* process = create_process("init", 1, 0, 0);
 
     Status* status = new Status();
-    status->cycle = 0;
+    status->cycle = -1;
     status->mode = "kernel";
-    status->command = "";
+    status->command = "boot";
     status->process_running = NULL;
     status->process_ready = {};
     status->process_waiting = {};
-    status->process_new = NULL;
+    status->process_new = process;
     status->process_terminated = NULL;
 
-    Process* process = create_process("init", 1, 0);
-    
-   
-    while (status->cycle < 10) {
-        print_status(*status);
+
+
+    if (bookmarks[0] >= read_file("init").second) {
+        } else {
+    run_command(read_file("init").first[bookmarks[0]], status);
     }
-    
+
     delete status;
     fclose(file);
 
