@@ -9,14 +9,16 @@
 
 using namespace std;
 
+// 프로세스 구조체
 struct Process {
     string name; //프로세스 이름
     int pid; //프로세스 ID
     int ppid; //부모 프로세스 ID
-    char waiting_type; ////waiting일 때 S, W중 하나
-    int sleep_remain_counter;
+    char waiting_type; //waiting일 때 S, W중 하나
+    int sleep_remain_counter; //sleep 명령어가 실행되면 sleep_remain_counter를 1씩 감소시킨다. 0이 되면 ready queue로 이동한다.
 };
 
+// status 구조체
 struct Status {
     int cycle;
     string mode;
@@ -94,7 +96,7 @@ void print_status(Status status) {
     fprintf(file, "\n");
 }
 
-
+// 파일을 읽어서 내용과 명령어 수를 얻는 함수
 pair<vector<string>, int> read_file(string file_name) {
     vector<string> file_content;
     string line;
@@ -228,13 +230,13 @@ void move_process_from_wait_to_ready_queue(Process* process, Status* status) {
 
 //cycle 증가 구현 함수
 void increase_cycle(Status* status) {
-        
+
+    //sleeping process의 sleep_remain_counter를 감소시키고 0이 되면 ready queue로 이동  
     for (int i = 0; i < status->process_waiting.size(); i++) {
         if (status->process_waiting[i]->waiting_type == 'S') {
             status->process_waiting[i]->sleep_remain_counter--;
             if (status->process_waiting[i]->sleep_remain_counter == 0) {
-                move_process_from_wait_to_ready_queue(status->process_waiting[i], status);
-                
+                move_process_from_wait_to_ready_queue(status->process_waiting[i], status);                
             }
         }
     }
@@ -258,18 +260,19 @@ void run_command(string command, Status* status) {
     string command_name = command_list[0];
     string arg1;
 
+    //명령어에 인자가 있는 경우
     if (command_list.size() > 1) {
         arg1 = command_list[1];
     } else {
         arg1 = "";
     }
 
-    
-
+    //명령어가 run 일 때
     if (command_name == "run") {
 
         increase_cycle(status);
 
+        //현재 모드 확인 후 kernel mode일 때 schedule
         if (status->mode == "user") {
 
         } else {
@@ -292,6 +295,7 @@ void run_command(string command, Status* status) {
         increase_cycle(status);
         }
 
+        //run 명령어 실행
         status->mode = "user";
         status->command = "run";
         bookmarks[status->process_running->pid-1]++;
@@ -300,19 +304,21 @@ void run_command(string command, Status* status) {
             increase_cycle(status);
         }
 
+        //idle 처리
         while (status->process_ready.empty() && status->process_running == NULL && status->process_new == NULL && !(status->process_waiting.empty())) {
             increase_cycle(status);
             status->command = "idle";
         }
         
+        //다음 명령어 실행
         run_command(read_file(status->process_ready[0]->name).first[bookmarks[status->process_ready[0]->pid-1]], status);
         
-
+    //명령어가 sleep 일 때
     } else if (command_name == "sleep") {
         
-
         increase_cycle(status);
 
+        //현재 모드 확인 후 kernel mode일 때 schedule
         if (status->mode == "user") {
 
         } else {
@@ -336,6 +342,7 @@ void run_command(string command, Status* status) {
 
         }
         
+        //sleep 명령어 실행
         status->mode = "user";
         status->command = "sleep";
         bookmarks[status->process_running->pid-1]++;
@@ -348,17 +355,21 @@ void run_command(string command, Status* status) {
         status->process_running->sleep_remain_counter = stoi(arg1);
         move_process_from_run_to_waiting_queue(status->process_running, status);
 
+        //idle 처리
         while (status->process_ready.empty() && status->process_running == NULL && status->process_new == NULL && !(status->process_waiting.empty())) {
             increase_cycle(status);
             status->command = "idle";
         }
+
+        //다음 명령어 실행
         run_command(read_file(status->process_ready[0]->name).first[bookmarks[status->process_ready[0]->pid-1]], status);
         
-
+    //명령어가 fork_and_exec 일 때
     } else if (command_name == "fork_and_exec") {
 
         increase_cycle(status);
 
+        //현재 모드 확인 후 kernel mode일 때 schedule
         if (status->mode == "user"){
 
         } else {
@@ -381,6 +392,7 @@ void run_command(string command, Status* status) {
         increase_cycle(status);
         }
 
+        //fork_and_exec 명령어 실행
         status->mode = "user";
         status->command = "fork_and_exec";
         if (status->process_running != NULL){
@@ -394,20 +406,21 @@ void run_command(string command, Status* status) {
         move_process_from_run_to_ready_queue(status->process_running, status);
         add_process_to_new_queue(process, status);
         
-
+        //idle 처리
         while (status->process_ready.empty() && status->process_running == NULL && status->process_new == NULL && !(status->process_waiting.empty())) {
             increase_cycle(status);
             status->command = "idle";
         }
+
+        //다음 명령어 실행
         run_command(read_file(status->process_ready[0]->name).first[bookmarks[status->process_ready[0]->pid-1]], status);
         
-
-        
-
+    //명령어가 wait 일 때
     } else if (command_name == "wait") {
 
         increase_cycle(status);
 
+        //현재 모드 확인 후 kernel mode일 때 schedule
         if (status->mode == "user") {
 
         } else {
@@ -429,6 +442,7 @@ void run_command(string command, Status* status) {
         increase_cycle(status);
         }
 
+        //wait 명령어 실행
         status->mode = "user";
         status->command = "wait";
         bookmarks[status->process_running->pid-1]++;
@@ -440,16 +454,21 @@ void run_command(string command, Status* status) {
         status->process_running->waiting_type = 'W';
         move_process_from_run_to_waiting_queue(status->process_running, status);
 
+        //idle 처리
         while (status->process_ready.empty() && status->process_running == NULL && status->process_new == NULL && !(status->process_waiting.empty())) {
             increase_cycle(status);
             status->command = "idle";
         }
+
+        //다음 명령어 실행
         run_command(read_file(status->process_ready[0]->name).first[bookmarks[status->process_ready[0]->pid-1]], status);
 
+    //명령어가 exit 일 때
     } else if (command_name == "exit") {
 
         increase_cycle(status);
 
+        //현재 모드 확인 후 kernel mode일 때 schedule
         if (status->mode == "user") {
 
         } else {
@@ -473,6 +492,7 @@ void run_command(string command, Status* status) {
         
         }
 
+        //exit 명령어 실행
         status->mode = "user";
         status->command = "exit";
         bookmarks[status->process_running->pid-1]++;
@@ -489,14 +509,19 @@ void run_command(string command, Status* status) {
             }
         }
 
+        //idle 처리
         while (status->process_ready.empty() && status->process_running == NULL && status->process_new == NULL && !(status->process_waiting.empty())) {
             increase_cycle(status);
             status->command = "idle";
         }
+
+        //idle 상태가 아니고, ready queue가 비어있을 경우 종료
         if (status->process_ready.empty()) {
             increase_cycle(status);
             return;
         }
+
+        //다음 명령어 실행
         run_command(read_file(status->process_ready[0]->name).first[bookmarks[status->process_ready[0]->pid-1]], status);
         
     }
@@ -504,14 +529,13 @@ void run_command(string command, Status* status) {
 
 
 
-
-
-
-
-
+//main 함수
 int main(void) {
     
+    //result 파일 생성 및 초기화 후 열기
     file = fopen("result", "w");
+
+    //init 프로세스 생성, status 초기화
     Process* process = create_process("init", 1, 0, 0);
 
     Status* status = new Status();
@@ -524,13 +548,10 @@ int main(void) {
     status->process_new = process;
     status->process_terminated = NULL;
 
-
-
-    if (bookmarks[0] >= read_file("init").second) {
-        } else {
+    //init 프로세스 실행
     run_command(read_file("init").first[bookmarks[0]], status);
-    }
 
+    //result 파일 닫기
     delete status;
     fclose(file);
 
