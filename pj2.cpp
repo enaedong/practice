@@ -6,8 +6,10 @@
 #include <cstdio>
 #include <list>
 #include <algorithm>
+#include <filesystem>
 
 using namespace std;
+namespace fs = std::filesystem;
 
 // 프로세스 구조체
 struct Process {
@@ -34,6 +36,7 @@ struct Status {
 int pid_decider = 1;
 vector<int> bookmarks;
 FILE* file;
+string directory_path;
 
 // 출력 함수
 void print_status(Status status) {
@@ -61,6 +64,7 @@ void print_status(Status status) {
     } else {
         fprintf(file, "4. ready:");
         for(int i =0; i < status.process_ready.size(); ++i) {//공백 한칸으로 구분
+            fprintf(file, " ");
             fprintf(file, "%d", status.process_ready[i]->pid);
         }
         fprintf(file, "\n");
@@ -72,6 +76,7 @@ void print_status(Status status) {
     } else {
         fprintf(file, "5. waiting:");
         for(int i =0; i < status.process_waiting.size(); ++i) {//공백 한칸으로 구분
+            fprintf(file, " ");
             fprintf(file, "%d(%c)", status.process_waiting[i]->pid, status.process_waiting[i]->waiting_type);
         }
         fprintf(file, "\n");
@@ -98,15 +103,17 @@ void print_status(Status status) {
 
 // 파일을 읽어서 내용과 명령어 수를 얻는 함수
 pair<vector<string>, int> read_file(string file_name) {
+    fs::path file_path = directory_path;
+    file_path /= file_name;        
+    ifstream file(file_path);
     vector<string> file_content;
     string line;
-    ifstream file(file_name);
     int line_number = 0;
     if (file.is_open()) {
         while (getline(file, line)) {
             file_content.push_back(line);
             line_number++;
-        }
+       }
         file.close();
     }
     return make_pair(file_content, line_number);
@@ -297,7 +304,7 @@ void run_command(string command, Status* status) {
 
         //run 명령어 실행
         status->mode = "user";
-        status->command = "run";
+        status->command = "run " + arg1;
         bookmarks[status->process_running->pid-1]++;
 
         for (int i = 0; i < stoi(arg1)-1; i++) {
@@ -344,7 +351,7 @@ void run_command(string command, Status* status) {
         
         //sleep 명령어 실행
         status->mode = "user";
-        status->command = "sleep";
+        status->command = "sleep " + arg1;
         bookmarks[status->process_running->pid-1]++;
 
         increase_cycle(status);
@@ -395,9 +402,7 @@ void run_command(string command, Status* status) {
         //fork_and_exec 명령어 실행
         status->mode = "user";
         status->command = "fork_and_exec";
-        if (status->process_running != NULL){
         bookmarks[status->process_running->pid-1]++;
-        }
         increase_cycle(status);
 
         status->mode = "kernel";
@@ -530,7 +535,12 @@ void run_command(string command, Status* status) {
 
 
 //main 함수
-int main(void) {
+int main(int argc, char* argv[]) {
+
+    //경로 지정
+    string input_path(argv[1]);
+//test용    string input_path = "/home/dongyeon/programs";
+    directory_path = input_path;
     
     //result 파일 생성 및 초기화 후 열기
     file = fopen("result", "w");
